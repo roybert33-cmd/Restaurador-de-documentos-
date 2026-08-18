@@ -2,33 +2,25 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Restaurador Documental Pro</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Restaurador de Actas Pro</title>
     
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; color: #1f2937; }
-        .canvas-container { 
-            background: #e5e7eb; border-radius: 12px; overflow: auto; 
+        body { font-family: sans-serif; background-color: #efeff4; color: #1c1c1e; }
+        .canvas-area { 
+            background: #d1d1d6; border-radius: 20px; overflow: auto; 
             display: flex; align-items: flex-start; justify-content: center; 
-            height: 50vh; border: 1px solid #d1d5db;
+            height: 55vh; border: 1px solid #c6c6c8; margin-bottom: 15px;
         }
-        canvas { 
-            image-rendering: auto;
-            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
-            background: white; margin: 10px;
-        }
-        input[type="range"] { accent-color: #000; height: 6px; border-radius: 10px; }
-        .loader {
-            width: 30px; height: 30px; border: 4px solid #000; border-bottom-color: transparent;
-            border-radius: 50%; animation: rotation 1s linear infinite;
-        }
-        @keyframes rotation { 0% { transform: rotate(0deg) } 100% { transform: rotate(360deg) } }
+        canvas { box-shadow: 0 8px 30px rgba(0,0,0,0.15); background: white; margin: 15px; }
+        input[type="range"] { accent-color: #007aff; width: 100%; height: 5px; }
+        .btn-primary { background: #007aff; color: white; font-weight: bold; padding: 14px; border-radius: 12px; width: 100%; }
+        .control-card { background: white; border-radius: 20px; padding: 20px; shadow: 0 4px 12px rgba(0,0,0,0.05); }
     </style>
 </head>
 <body>
@@ -39,13 +31,11 @@
 
         function App() {
             const [img, setImg] = useState(null);
-            const [isProcessing, setIsProcessing] = useState(false);
             const [settings, setSettings] = useState({
-                brillo: 100,
-                contraste: 110,
-                nitidez: 15,
-                escala: 100,
-                modo: 'gris' // Cambiado a gris por defecto para mejor calidad
+                limpieza: 40,  // Elimina el gris del papel
+                tinta: 50,     // Resalta las letras
+                zoom: 100,
+                nitidez: 10
             });
             
             const canvasRef = useRef(null);
@@ -54,182 +44,120 @@
             const handleUpload = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
-                setIsProcessing(true);
                 const reader = new FileReader();
-                reader.onload = (event) => {
+                reader.onload = (ev) => {
                     const newImg = new Image();
-                    newImg.onload = () => {
-                        setImg(newImg);
-                        setIsProcessing(false);
-                    };
-                    newImg.src = event.target.result;
+                    newImg.onload = () => setImg(newImg);
+                    newImg.src = ev.target.result;
                 };
                 reader.readAsDataURL(file);
             };
 
-            const processImage = useCallback(() => {
+            const process = useCallback(() => {
                 if (!img || !canvasRef.current) return;
-                
                 const canvas = canvasRef.current;
                 const ctx = canvas.getContext('2d');
                 
-                const factor = settings.escala / 100;
-                const targetW = img.width * factor;
-                const targetH = img.height * factor;
+                const factor = settings.zoom / 100;
+                canvas.width = img.width * factor;
+                canvas.height = img.height * factor;
 
-                // Límite para que el móvil no se trabe
-                const limit = 2500;
-                const finalScale = Math.min(1, limit / Math.max(targetW, targetH));
-                
-                canvas.width = targetW * finalScale;
-                canvas.height = targetH * finalScale;
+                // Limite de seguridad para móviles
+                if(canvas.width > 2500) {
+                    const scale = 2500 / canvas.width;
+                    canvas.width *= scale;
+                    canvas.height *= scale;
+                }
 
-                ctx.imageSmoothingEnabled = true;
-                ctx.imageSmoothingQuality = 'high';
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                 const data = imageData.data;
                 
-                const b = (settings.brillo - 100);
-                const c = settings.contraste / 100;
+                // Algoritmo de Limpieza Documental
+                const l = settings.limpieza; // Nivel de blanco
+                const t = settings.tinta / 100; // Multiplicador de negro
 
                 for (let i = 0; i < data.length; i += 4) {
-                    // 1. Mejora de Grises Pro (Evita el granulado)
-                    let r = data[i], g = data[i+1], b_val = data[i+2];
-                    
-                    // Convertir a gris suave
-                    let gray = r * 0.299 + g * 0.587 + b_val * 0.114;
+                    // 1. Convertir a escala de grises realzada
+                    let gray = data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114;
 
-                    if (settings.modo === 'gris') {
-                        // Ajustar brillo y contraste sobre el gris
-                        gray = (gray + b - 128) * c + 128;
-                        data[i] = data[i+1] = data[i+2] = gray;
+                    // 2. Blanquear fondo (Curva Gamma local)
+                    // Si el pixel es claro (papel), lo forzamos a blanco
+                    if (gray > (255 - l)) {
+                        gray = 255;
                     } else {
-                        // Modo color mejorado
-                        data[i] = (r + b - 128) * c + 128;
-                        data[i+1] = (g + b - 128) * c + 128;
-                        data[i+2] = (b_val + b - 128) * c + 128;
+                        // Si es oscuro (tinta), lo oscurecemos más
+                        gray = Math.max(0, gray * (1 - t));
                     }
+
+                    data[i] = data[i+1] = data[i+2] = gray;
                 }
 
-                // 2. Nitidez Inteligente (Filtro de paso alto suave)
-                if (settings.nitidez > 0) {
-                    const amount = settings.nitidez / 100;
-                    // Matriz más suave para no crear puntos negros
-                    const weights = [ 
-                        0, -amount/2, 0, 
-                        -amount/2, 1 + amount, -amount/2, 
-                        0, -amount/2, 0 
-                    ];
-                    applyConvolution(ctx, imageData, weights);
-                } else {
-                    ctx.putImageData(imageData, 0, 0);
-                }
+                ctx.putImageData(imageData, 0, 0);
             }, [img, settings]);
 
-            function applyConvolution(ctx, pixels, weights) {
-                const side = 3;
-                const sw = pixels.width;
-                const sh = pixels.height;
-                const src = pixels.data;
-                const output = ctx.createImageData(sw, sh);
-                const dst = output.data;
-
-                for (let y = 0; y < sh; y++) {
-                    for (let x = 0; x < sw; x++) {
-                        const dstOff = (y * sw + x) * 4;
-                        let r = 0, g = 0, b = 0;
-                        for (let cy = 0; cy < side; cy++) {
-                            for (let cx = 0; cx < side; cx++) {
-                                const scy = Math.min(sh - 1, Math.max(0, y + cy - 1));
-                                const scx = Math.min(sw - 1, Math.max(0, x + cx - 1));
-                                const srcOff = (scy * sw + scx) * 4;
-                                const wt = weights[cy * side + cx];
-                                r += src[srcOff] * wt;
-                                g += src[srcOff + 1] * wt;
-                                b += src[srcOff + 2] * wt;
-                            }
-                        }
-                        dst[dstOff] = r; dst[dstOff+1] = g; dst[dstOff+2] = b; dst[dstOff+3] = 255;
-                    }
-                }
-                ctx.putImageData(output, 0, 0);
-            }
-
             useEffect(() => {
-                const timer = setTimeout(processImage, 300);
+                const timer = setTimeout(process, 200);
                 return () => clearTimeout(timer);
-            }, [processImage]);
+            }, [process]);
 
             return (
-                <div className="min-h-screen flex flex-col pb-10">
-                    <header className="bg-white border-b p-4 flex justify-between items-center shadow-sm">
-                        <h1 className="font-bold text-lg flex items-center gap-2">
-                            <span className="bg-black text-white px-2 rounded text-sm">PRO</span> Restaurador
-                        </h1>
-                        {img && <button onClick={() => setImg(null)} className="text-blue-600 text-sm font-bold">Cambiar foto</button>}
+                <div className="max-w-md mx-auto p-4">
+                    <header className="mb-6 text-center">
+                        <h1 className="text-2xl font-bold tracking-tight">Restaurador de Actas</h1>
+                        <p className="text-gray-500 text-sm">Optimizado para lectura de registros</p>
                     </header>
 
-                    <main className="p-4 flex flex-col gap-4">
-                        {!img ? (
-                            <div className="flex flex-col items-center justify-center mt-10">
-                                <div 
-                                    className="w-full max-w-sm p-10 border-2 border-dashed border-gray-400 rounded-3xl bg-white text-center"
-                                    onClick={() => fileInputRef.current.click()}
-                                >
-                                    <p className="font-bold mb-4">Toca aquí para subir tu documento</p>
-                                    <div className="bg-black text-white py-3 rounded-xl font-bold">Seleccionar archivo</div>
-                                </div>
-                                <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleUpload} />
+                    {!img ? (
+                        <div 
+                            className="bg-white border-2 border-dashed border-gray-300 rounded-[30px] p-12 text-center"
+                            onClick={() => fileInputRef.current.click()}
+                        >
+                            <div className="text-4xl mb-4">📄</div>
+                            <p className="font-bold">Subir foto del acta</p>
+                            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleUpload} />
+                        </div>
+                    ) : (
+                        <div className="animate-in fade-in">
+                            <div className="canvas-area">
+                                <canvas ref={canvasRef} />
                             </div>
-                        ) : (
-                            <>
-                                {/* Área de Imagen */}
-                                <div className="canvas-container relative">
-                                    {isProcessing && <div className="absolute inset-0 flex items-center justify-center bg-white/50"><div className="loader"></div></div>}
-                                    <canvas ref={canvasRef} />
+
+                            <div className="control-card space-y-6">
+                                <div>
+                                    <div className="flex justify-between text-xs font-bold mb-2 uppercase">
+                                        <span>Limpiar Papel (Fondo)</span>
+                                        <span className="text-blue-600">{settings.limpieza}</span>
+                                    </div>
+                                    <input type="range" min="0" max="150" value={settings.limpieza} 
+                                        onChange={e => setSettings({...settings, limpieza: parseInt(e.target.value)})} />
                                 </div>
 
-                                {/* Controles Adaptados */}
-                                <div className="bg-white rounded-2xl p-5 shadow-md space-y-5">
-                                    <div className="flex gap-2">
-                                        <button onClick={() => setSettings({...settings, modo: 'gris'})} className={`flex-1 py-2 rounded-lg font-bold text-xs ${settings.modo === 'gris' ? 'bg-black text-white' : 'bg-gray-100'}`}>ESCALA GRISES (RECOMENDADO)</button>
-                                        <button onClick={() => setSettings({...settings, modo: 'color'})} className={`flex-1 py-2 rounded-lg font-bold text-xs ${settings.modo === 'color' ? 'bg-black text-white' : 'bg-gray-100'}`}>COLOR ORIGINAL</button>
+                                <div>
+                                    <div className="flex justify-between text-xs font-bold mb-2 uppercase">
+                                        <span>Resaltar Tinta (Letras)</span>
+                                        <span className="text-blue-600">{settings.tinta}</span>
                                     </div>
+                                    <input type="range" min="0" max="100" value={settings.tinta} 
+                                        onChange={e => setSettings({...settings, tinta: parseInt(e.target.value)})} />
+                                </div>
 
-                                    <div className="grid grid-cols-1 gap-4">
-                                        <div>
-                                            <div className="flex justify-between text-xs font-bold mb-2"><span>NITIDEZ (ENFOQUE)</span><span>{settings.nitidez}%</span></div>
-                                            <input type="range" min="0" max="50" value={settings.nitidez} onChange={e => setSettings({...settings, nitidez: parseInt(e.target.value)})} className="w-full" />
-                                        </div>
-                                        <div className="flex gap-4">
-                                            <div className="flex-1">
-                                                <div className="flex justify-between text-xs font-bold mb-2"><span>CONTRASTE</span></div>
-                                                <input type="range" min="80" max="180" value={settings.contraste} onChange={e => setSettings({...settings, contraste: parseInt(e.target.value)})} className="w-full" />
-                                            </div>
-                                            <div className="flex-1">
-                                                <div className="flex justify-between text-xs font-bold mb-2"><span>BRILLO</span></div>
-                                                <input type="range" min="70" max="130" value={settings.brillo} onChange={e => setSettings({...settings, brillo: parseInt(e.target.value)})} className="w-full" />
-                                            </div>
-                                        </div>
-                                    </div>
-
+                                <div className="flex gap-4">
+                                    <button onClick={() => setImg(null)} className="flex-1 py-3 border border-gray-300 rounded-xl font-bold text-sm">Atrás</button>
                                     <button 
                                         onClick={() => {
                                             const link = document.createElement('a');
-                                            link.download = 'documento_restaurado.jpg';
+                                            link.download = 'acta_limpia.jpg';
                                             link.href = canvasRef.current.toDataURL('image/jpeg', 0.95);
                                             link.click();
                                         }}
-                                        className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold shadow-lg"
-                                    >
-                                        DESCARGAR IMAGEN LIMPIA
-                                    </button>
+                                        className="flex-[2] bg-black text-white py-3 rounded-xl font-bold text-sm"
+                                    >Descargar Acta</button>
                                 </div>
-                            </>
-                        )}
-                    </main>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         }
