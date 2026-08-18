@@ -3,23 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Restaurador Pro v2</title>
+    <title>Restaurador Documental HD</title>
     
-    <!-- Librerías de alta compatibilidad -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #fbfbfa; }
-        .drop-zone { transition: all 0.3s ease; border: 2px dashed #e5e7eb; }
-        .drop-zone:hover { border-color: #000; background-color: #f9fafb; }
-        .canvas-box { background: #f3f4f6; border-radius: 20px; overflow: hidden; display: flex; align-items: center; justify-content: center; min-height: 400px; position: relative; }
-        canvas { max-width: 100%; max-height: 65vh; height: auto; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1); }
-        .loader { width: 24px; height: 24px; border: 3px solid #FFF; border-bottom-color: transparent; border-radius: 50%; display: inline-block; animation: rotation 1s linear infinite; }
-        @keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        body { font-family: 'Inter', sans-serif; background-color: #f8f9fa; }
+        .canvas-container { 
+            background: #e5e7eb; 
+            border-radius: 24px; 
+            overflow: auto; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            height: 70vh; 
+            border: 1px solid #d1d5db;
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+        }
+        canvas { 
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            background: white;
+        }
+        input[type="range"] { accent-color: #000; }
+        .custom-loader {
+            width: 48px; height: 48px; border: 5px solid #000; border-bottom-color: transparent;
+            border-radius: 50%; display: inline-block; animation: rotation 1s linear infinite;
+        }
+        @keyframes rotation { 0% { transform: rotate(0deg) } 100% { transform: rotate(360deg) } }
     </style>
 </head>
 <body>
@@ -29,194 +45,207 @@
         const { useState, useEffect, useRef, useCallback } = React;
 
         function App() {
-            const [image, setImage] = useState(null);
-            const [loading, setLoading] = useState(false);
-            const [settings, setSettings] = useState({ brillo: 100, contraste: 100, nitidez: 0, modo: 'auto' });
-            const [rotation, setRotation] = useState(0);
+            const [img, setImg] = useState(null);
+            const [isProcessing, setIsProcessing] = useState(false);
+            const [settings, setSettings] = useState({
+                brillo: 100,
+                contraste: 110,
+                nitidez: 30, // El valor clave para leer mejor
+                escala: 100,  // Para agrandar la foto
+                modo: 'bn'
+            });
             
             const canvasRef = useRef(null);
             const fileInputRef = useRef(null);
 
-            // Cargar imagen
-            const onFileChange = (e) => {
+            const handleUpload = (e) => {
                 const file = e.target.files[0];
-                if (file) {
-                    setLoading(true);
-                    const reader = new FileReader();
-                    reader.onload = (event) => {
-                        const img = new Image();
-                        img.onload = () => {
-                            setImage(img);
-                            setLoading(false);
-                        };
-                        img.src = event.target.result;
+                if (!file) return;
+                setIsProcessing(true);
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const newImg = new Image();
+                    newImg.onload = () => {
+                        setImg(newImg);
+                        setIsProcessing(false);
                     };
-                    reader.readAsDataURL(file);
-                }
+                    newImg.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
             };
 
-            // Procesar imagen en el Canvas
-            const applyFilters = useCallback(() => {
-                if (!image || !canvasRef.current) return;
+            const processImage = useCallback(() => {
+                if (!img || !canvasRef.current) return;
                 
                 const canvas = canvasRef.current;
-                const ctx = canvas.getContext('2d');
+                const ctx = canvas.getContext('2d', { alpha: false });
                 
-                const isRotated = rotation === 90 || rotation === 270;
-                const width = isRotated ? image.height : image.width;
-                const height = isRotated ? image.width : image.height;
+                // Calculamos el tamaño basado en la escala (Agrandar)
+                const factor = settings.escala / 100;
+                const targetW = img.width * factor;
+                const targetH = img.height * factor;
 
-                // Escalar si es muy grande para evitar que se ponga blanco
-                const MAX_SIZE = 1600;
-                let scale = 1;
-                if (Math.max(width, height) > MAX_SIZE) {
-                    scale = MAX_SIZE / Math.max(width, height);
-                }
+                // Límite de seguridad para evitar pantalla blanca (max 3000px)
+                const limit = 3000;
+                const finalScale = Math.min(1, limit / Math.max(targetW, targetH));
+                
+                canvas.width = targetW * finalScale;
+                canvas.height = targetH * finalScale;
 
-                canvas.width = width * scale;
-                canvas.height = height * scale;
+                // Dibujar con máxima calidad
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-                ctx.save();
-                ctx.translate(canvas.width / 2, canvas.height / 2);
-                ctx.rotate((rotation * Math.PI) / 180);
-                const drawW = isRotated ? canvas.height : canvas.width;
-                const drawH = isRotated ? canvas.width : canvas.height;
-                ctx.drawImage(image, -drawW / 2, -drawH / 2, drawW, drawH);
-                ctx.restore();
-
-                // Filtros de píxeles
+                // Obtener datos de píxeles
                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                 const data = imageData.data;
-                const b = (settings.brillo - 100) * 1.2;
+                
+                // 1. BRILLO Y CONTRASTE
+                const b = (settings.brillo - 100);
                 const c = settings.contraste / 100;
 
                 for (let i = 0; i < data.length; i += 4) {
-                    // Brillo y Contraste
                     for (let j = 0; j < 3; j++) {
-                        data[i + j] = (data[i + j] + b - 128) * c + 128;
+                        let p = data[i+j];
+                        p = (p + b - 128) * c + 128;
+                        data[i+j] = p;
                     }
-                    // Modo Blanco y Negro (Gris optimizado)
-                    if (settings.modo === 'auto') {
-                        const gray = data[i] * 0.3 + data[i + 1] * 0.59 + data[i + 2] * 0.11;
-                        data[i] = data[i + 1] = data[i + 2] = gray;
+
+                    // MODO LECTURA (B/N de alto contraste)
+                    if (settings.modo === 'bn') {
+                        const gray = data[i]*0.299 + data[i+1]*0.587 + data[i+2]*0.114;
+                        const threshold = gray > 128 ? 255 : 0; // Umbral simple para texto limpio
+                        // Mezcla suave entre gris y b/n para legibilidad
+                        const final = (gray * 0.3) + (threshold * 0.7);
+                        data[i] = data[i+1] = data[i+2] = final;
                     }
                 }
-                ctx.putImageData(imageData, 0, 0);
-            }, [image, settings, rotation]);
+
+                // 2. FILTRO DE NITIDEZ (Matrix Convolution)
+                // Esto hace que los bordes de las letras se vean definidos
+                if (settings.nitidez > 0) {
+                    const amount = settings.nitidez / 100;
+                    const weights = [ 0, -amount, 0, -amount, 1 + (amount * 4), -amount, 0, -amount, 0 ];
+                    const side = Math.round(Math.sqrt(weights.length));
+                    const halfSide = Math.floor(side / 2);
+                    const sw = canvas.width;
+                    const sh = canvas.height;
+                    const output = ctx.createImageData(sw, sh);
+                    const dst = output.data;
+
+                    for (let y = 0; y < sh; y++) {
+                        for (let x = 0; x < sw; x++) {
+                            const sy = y;
+                            const sx = x;
+                            const dstOff = (y * sw + x) * 4;
+                            let r = 0, g = 0, b = 0;
+                            for (let cy = 0; cy < side; cy++) {
+                                for (let cx = 0; cx < side; cx++) {
+                                    const scy = sy + cy - halfSide;
+                                    const scx = sx + cx - halfSide;
+                                    if (scy >= 0 && scy < sh && scx >= 0 && scx < sw) {
+                                        const srcOff = (scy * sw + scx) * 4;
+                                        const wt = weights[cy * side + cx];
+                                        r += data[srcOff] * wt;
+                                        g += data[srcOff + 1] * wt;
+                                        b += data[srcOff + 2] * wt;
+                                    }
+                                }
+                            }
+                            dst[dstOff] = r; dst[dstOff+1] = g; dst[dstOff+2] = b; dst[dstOff+3] = 255;
+                        }
+                    }
+                    ctx.putImageData(output, 0, 0);
+                } else {
+                    ctx.putImageData(imageData, 0, 0);
+                }
+            }, [img, settings]);
 
             useEffect(() => {
-                applyFilters();
-            }, [applyFilters]);
-
-            const downloadImage = () => {
-                const link = document.createElement('a');
-                link.download = 'documento_mejorado.jpg';
-                link.href = canvasRef.current.toDataURL('image/jpeg', 0.9);
-                link.click();
-            };
+                const timer = setTimeout(processImage, 300);
+                return () => clearTimeout(timer);
+            }, [processImage]);
 
             return (
-                <div className="min-h-screen">
-                    {/* Barra superior */}
-                    <nav className="bg-white border-b px-8 py-4 flex justify-between items-center sticky top-0 z-50">
+                <div className="min-h-screen flex flex-col">
+                    <header className="bg-white border-b px-8 py-4 flex justify-between items-center">
                         <div className="flex items-center gap-2">
-                            <div className="bg-black text-white p-2 rounded-lg font-black italic">R</div>
-                            <span className="font-bold tracking-tight text-lg">Restaurador Pro</span>
+                            <div className="bg-black text-white w-8 h-8 rounded flex items-center justify-center font-bold">HD</div>
+                            <h1 className="font-bold text-xl tracking-tight">Restaurador Pro <span className="text-blue-600">Ultra nitidez</span></h1>
                         </div>
-                        {image && (
-                            <button 
-                                onClick={() => setImage(null)}
-                                className="text-sm font-semibold text-red-500 hover:bg-red-50 px-4 py-2 rounded-full"
-                            >
-                                Cambiar foto
-                            </button>
-                        )}
-                    </nav>
+                        {img && <button onClick={() => setImg(null)} className="text-red-500 font-semibold text-sm">Cargar nueva imagen</button>}
+                    </header>
 
-                    <main className="max-w-6xl mx-auto p-6">
-                        {!image ? (
-                            /* Pantalla de subida */
-                            <div className="mt-20 text-center">
-                                <h1 className="text-5xl font-extrabold mb-4 tracking-tighter text-neutral-900">
-                                    Mejora tus documentos <br/> con nitidez profesional.
-                                </h1>
-                                <p className="text-neutral-500 text-lg mb-12">No enviamos tus fotos a ningún servidor. Privacidad 100%.</p>
-                                
+                    <main className="flex-1 p-6 grid lg:grid-cols-[350px_1fr] gap-8">
+                        {!img ? (
+                            <div className="col-span-2 flex flex-col items-center justify-center mt-20">
                                 <div 
-                                    className="drop-zone bg-white rounded-[40px] p-20 cursor-pointer shadow-xl"
+                                    className="w-full max-w-2xl p-20 border-4 border-dashed border-neutral-300 rounded-[40px] bg-white text-center hover:border-black transition-all cursor-pointer"
                                     onClick={() => fileInputRef.current.click()}
                                 >
-                                    <div className="bg-neutral-100 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6">
-                                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                                    </div>
-                                    <p className="text-2xl font-bold mb-2">Haz clic para subir una foto</p>
-                                    <p className="text-neutral-400">JPG, PNG o PDF (como imagen)</p>
-                                    <input 
-                                        type="file" 
-                                        ref={fileInputRef} 
-                                        className="hidden" 
-                                        accept="image/*" 
-                                        onChange={onFileChange}
-                                    />
+                                    <p className="text-2xl font-bold mb-2">Sube el documento para mejorar píxeles</p>
+                                    <p className="text-neutral-400 mb-8">Especial para recibos, carnets y fotos borrosas</p>
+                                    <button className="bg-black text-white px-10 py-4 rounded-full font-bold">Seleccionar archivo</button>
                                 </div>
+                                <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleUpload} />
                             </div>
                         ) : (
-                            /* Pantalla de Edición */
-                            <div className="grid lg:grid-cols-[320px_1fr] gap-8 mt-4 animate-in slide-in-from-bottom-4 duration-500">
-                                {/* Barra lateral de controles */}
-                                <div className="space-y-6">
-                                    <div className="bg-white border rounded-[32px] p-6 shadow-sm space-y-8">
-                                        <div>
-                                            <label className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 block mb-4">Modo</label>
-                                            <div className="flex bg-neutral-100 p-1 rounded-2xl">
-                                                <button 
-                                                    onClick={() => setSettings({...settings, modo: 'color'})}
-                                                    className={`flex-1 py-2 rounded-xl text-sm font-bold transition ${settings.modo === 'color' ? 'bg-white shadow-sm' : 'text-neutral-500'}`}
-                                                >Color</button>
-                                                <button 
-                                                    onClick={() => setSettings({...settings, modo: 'auto'})}
-                                                    className={`flex-1 py-2 rounded-xl text-sm font-bold transition ${settings.modo === 'auto' ? 'bg-white shadow-sm' : 'text-neutral-500'}`}
-                                                >B/N</button>
-                                            </div>
-                                        </div>
-
+                            <>
+                                {/* Panel de Control */}
+                                <aside className="bg-white rounded-[32px] p-8 border shadow-sm space-y-8 h-fit">
+                                    <div>
+                                        <label className="text-[11px] font-bold uppercase text-neutral-400 block mb-4 tracking-widest">Mejora de Píxeles</label>
                                         <div className="space-y-6">
                                             <div>
-                                                <div className="flex justify-between text-sm font-bold mb-3"><span>Brillo</span><span>{settings.brillo}%</span></div>
-                                                <input type="range" min="0" max="200" value={settings.brillo} onChange={(e) => setSettings({...settings, brillo: e.target.value})} className="w-full accent-black"/>
+                                                <div className="flex justify-between text-sm font-bold mb-2"><span>Nitidez (Enfoque)</span><span>{settings.nitidez}%</span></div>
+                                                <input type="range" min="0" max="100" value={settings.nitidez} onChange={e => setSettings({...settings, nitidez: parseInt(e.target.value)})} className="w-full" />
+                                                <p className="text-[10px] text-neutral-400 mt-1">Aumenta para leer letras borrosas.</p>
                                             </div>
                                             <div>
-                                                <div className="flex justify-between text-sm font-bold mb-3"><span>Contraste</span><span>{settings.contraste}%</span></div>
-                                                <input type="range" min="0" max="200" value={settings.contraste} onChange={(e) => setSettings({...settings, contraste: e.target.value})} className="w-full accent-black"/>
+                                                <div className="flex justify-between text-sm font-bold mb-2"><span>Agrandar (Escala)</span><span>{settings.escala}%</span></div>
+                                                <input type="range" min="100" max="250" value={settings.escala} onChange={e => setSettings({...settings, escala: parseInt(e.target.value)})} className="w-full" />
+                                                <p className="text-[10px] text-neutral-400 mt-1">Aumenta el tamaño de la imagen original.</p>
                                             </div>
                                         </div>
+                                    </div>
 
-                                        <div className="pt-4 space-y-3">
-                                            <button 
-                                                onClick={() => setRotation((rotation + 90) % 360)}
-                                                className="w-full border-2 border-neutral-100 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-neutral-50 transition"
-                                            >
-                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-                                                Rotar imagen
-                                            </button>
-                                            <button 
-                                                onClick={downloadImage}
-                                                className="w-full bg-black text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:opacity-90 shadow-xl transition active:scale-95"
-                                            >
-                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                                                Descargar JPG
-                                            </button>
+                                    <div className="space-y-4">
+                                        <label className="text-[11px] font-bold uppercase text-neutral-400 block tracking-widest">Ajustes de Luz</label>
+                                        <div>
+                                            <div className="flex justify-between text-sm font-bold mb-2"><span>Contraste</span><span>{settings.contraste}%</span></div>
+                                            <input type="range" min="50" max="200" value={settings.contraste} onChange={e => setSettings({...settings, contraste: parseInt(e.target.value)})} className="w-full" />
+                                        </div>
+                                        <div>
+                                            <div className="flex justify-between text-sm font-bold mb-2"><span>Brillo</span><span>{settings.brillo}%</span></div>
+                                            <input type="range" min="50" max="150" value={settings.brillo} onChange={e => setSettings({...settings, brillo: parseInt(e.target.value)})} className="w-full" />
                                         </div>
                                     </div>
-                                    <p className="text-[10px] text-center text-neutral-400 font-medium">Procesamiento local: La imagen nunca sale de tu PC.</p>
-                                </div>
 
-                                {/* Previsualización */}
-                                <div className="canvas-box border-2 border-white shadow-2xl">
-                                    {loading && <div className="absolute inset-0 flex items-center justify-center bg-white/50 z-10"><span className="loader"></span></div>}
-                                    <canvas ref={canvasRef}></canvas>
+                                    <button 
+                                        onClick={() => {
+                                            const link = document.createElement('a');
+                                            link.download = 'documento_hd.jpg';
+                                            link.href = canvasRef.current.toDataURL('image/jpeg', 1.0);
+                                            link.click();
+                                        }}
+                                        className="w-full bg-black text-white py-4 rounded-2xl font-bold shadow-xl hover:scale-[1.02] transition active:scale-95 flex items-center justify-center gap-2"
+                                    >
+                                        Descargar en HD
+                                    </button>
+                                </aside>
+
+                                {/* Área de Visualización */}
+                                <div className="flex flex-col gap-4">
+                                    <div className="canvas-container">
+                                        {isProcessing && <div className="absolute z-20 flex flex-col items-center gap-4"><span className="custom-loader"></span><p className="font-bold">Reconstruyendo píxeles...</p></div>}
+                                        <canvas ref={canvasRef} />
+                                    </div>
+                                    <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl text-blue-800 text-xs leading-relaxed">
+                                        <strong>Tip de lectura:</strong> Si el texto es muy pequeño, sube la <b>Escala</b> al 200% y luego ajusta la <b>Nitidez</b> hasta que las letras negras se vean bien definidas sobre el fondo blanco.
+                                    </div>
                                 </div>
-                            </div>
+                            </>
                         )}
                     </main>
                 </div>
